@@ -52,14 +52,20 @@ def train_one_epoch(
     return losses_meter.avg
 
 
-@torch.no_grad()
 def evaluate(model: torch.nn.Module, data_loader: DataLoader, device: str, cfg: Config):
-    model.eval()
+    """
+    Compute validation loss. Detection models only return losses when in training mode,
+    so we temporarily switch to train() while keeping gradients off.
+    """
+    was_training = model.training
+    model.train()
     losses_meter = SmoothedValue()
-    for batch in data_loader:
-        images, targets = _move_to_device(batch, device)
-        loss_dict = model(images, targets)
-        loss, _ = reduce_loss_dict(loss_dict)
-        losses_meter.update(loss.item(), n=len(images))
+    with torch.no_grad():
+        for batch in data_loader:
+            images, targets = _move_to_device(batch, device)
+            loss_dict = model(images, targets)
+            loss, _ = reduce_loss_dict(loss_dict)
+            losses_meter.update(loss.item(), n=len(images))
+    if not was_training:
+        model.eval()
     return losses_meter.avg
-
