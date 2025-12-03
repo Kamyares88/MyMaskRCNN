@@ -114,6 +114,18 @@ class InstanceSegmentationDataset(Dataset):
             "iscrowd": iscrowd,
         }
 
+        # Basic sanity checks to catch class-range or geometry issues early
+        if labels.numel() > 0:
+            if labels.min() < 0 or labels.max() >= (len(self.classes) if self.classes else labels.max() + 1):
+                raise ValueError(
+                    f"Label out of range for {img_path.name}: min={labels.min().item()} max={labels.max().item()} "
+                    f"with {len(self.classes) if self.classes else 'unknown'} classes"
+                )
+        if boxes.numel() > 0:
+            invalid = (boxes[:, 2] <= boxes[:, 0]) | (boxes[:, 3] <= boxes[:, 1])
+            if invalid.any():
+                raise ValueError(f"Found non-positive box size in {img_path.name}: {boxes[invalid]}")
+
         if self.transforms:
             image, target = self.transforms(image, target)
 

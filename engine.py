@@ -31,9 +31,21 @@ def train_one_epoch(
     losses_meter = SmoothedValue()
     for step, batch in enumerate(data_loader):
         images, targets = _move_to_device(batch, device)
-        with autocast(enabled=cfg.amp):
-            loss_dict = model(images, targets)
-            loss, log_dict = reduce_loss_dict(loss_dict)
+        try:
+            with autocast(enabled=cfg.amp):
+                loss_dict = model(images, targets)
+                loss, log_dict = reduce_loss_dict(loss_dict)
+        except Exception as e:
+            # Helpful debug info when a batch triggers a CUDA error
+            print(f"[train] failure on batch {step}")
+            print(f" num images: {len(images)}")
+            for i, t in enumerate(targets):
+                print(
+                    f"  sample {i}: labels={t['labels'].tolist()} "
+                    f"boxes_shape={tuple(t['boxes'].shape)} masks_shape={tuple(t['masks'].shape)} "
+                    f"boxes_sample={t['boxes'][:2].tolist() if t['boxes'].numel() else []}"
+                )
+            raise
 
         optimizer.zero_grad()
         scaler.scale(loss).backward()
@@ -61,10 +73,19 @@ def evaluate(model: torch.nn.Module, data_loader: DataLoader, device: str, cfg: 
     model.train()
     losses_meter = SmoothedValue()
     with torch.no_grad():
-        for batch in data_loader:
+        for step, batch in enumerate(data_loader):
             images, targets = _move_to_device(batch, device)
-            loss_dict = model(images, targets)
-            loss, _ = reduce_loss_dict(loss_dict)
+            try:
+                loss_dict = model(images, targets)
+                loss, _ = reduce_loss_dict(loss_dict)
+            except Exception:
+                print(f"[eval] failure on batch {step}")
+                for i, t in enumerate(targets):
+                    print(
+                        f"  sample {i}: labels={t['labels'].tolist()} "
+                        f"boxes_shape={tuple(t['boxes'].shape)} masks_shape={tuple(t['masks'].shape)}"
+                    )
+                raise
             losses_meter.update(loss.item(), n=len(images))
     if not was_training:
         model.eval()
